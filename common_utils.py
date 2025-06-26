@@ -6,7 +6,6 @@ from typing import Union, Dict
 from pyspark import SparkContext
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import *
-from utils.xsd_tree import TreeNode, serialize_tree
 
 
 def load_json(path_: str) -> None:
@@ -19,21 +18,6 @@ def load_json(path_: str) -> None:
         return json.load(open(path_, "rb"))
     except Exception as e:
         print(f'Reading file {path_} failed with error {e}')
-
-
-def save_json_tree(tree: TreeNode, output_path: str) -> None:
-    """
-    Saves the tree to a location on HDFS as a json file with a nested structure.
-    :param tree: tree structure
-    :param output_path: location on hdfs where the tree will be saved
-    """
-    serialized_tree = serialize_tree(tree)
-    json_string = json.dumps(serialized_tree)
-    try:
-        with open(output_path, 'w') as f:
-            json.dump(json_string, f)
-    except Exception as e:
-        print(e)
 
 
 def parse_pandas_columns(df: PDataFrame, parser: Dict[str, str]) -> PDataFrame:
@@ -99,6 +83,13 @@ def pandas_to_pyspark(spark: SparkSession, df: PDataFrame) -> DataFrame:
 
 
 def read_xml_as_string_from_hdfs(xml_path: Union[bytes, str]) -> Union[bytes, str]:
+    """
+    Reads an XML file from HDFS and returns its content as a single string.
+    Replaces '&' characters with '&amp;' to ensure valid XML format.
+
+    :param xml_path: The HDFS path to the XML file.
+    :return: The XML content as a string.
+    """
     sc = SparkContext.getOrCreate()
     rdd = sc.textFile(xml_path)
     xml_content = "\n".join(rdd.collect()).replace('&', '&amp;')
@@ -106,6 +97,12 @@ def read_xml_as_string_from_hdfs(xml_path: Union[bytes, str]) -> Union[bytes, st
 
 
 def read_xml_as_string_from_local(xml_path: Union[bytes, str]) -> Union[bytes, str]:
+    """
+    Reads an XML file from the local filesystem and returns its content as a string.
+
+    :param xml_path: The local file path to the XML file.
+    :return: The XML content as a string.
+    """
     with open(xml_path, 'r') as f:
         xml_content = f.read()
     return xml_content
@@ -131,6 +128,12 @@ def read_xml_to_spark(spark: SparkSession, pyspark_schema: StructType, root_tag:
 
 
 def spark_to_mssql_type(spark_type):
+    """
+    Maps a Spark SQL data type to an equivalent MSSQL data type.
+
+    :param spark_type: The Spark SQL data type.
+    :return: A string representing the corresponding MSSQL data type.
+    """
     if isinstance(spark_type, StringType):
         return "VARCHAR(MAX)"
     elif isinstance(spark_type, IntegerType):
@@ -152,7 +155,16 @@ def spark_to_mssql_type(spark_type):
 
 
 def spark_to_mssql_schema(sdf, table):
+    """
+    Generates a MSSQL CREATE TABLE statement based on a Spark DataFrame schema.
+
+    :param sdf: The Spark DataFrame.
+    :param table: The name of the table to create.
+    :return: A SQL CREATE TABLE statement as a string.
+    """
     schema = sdf.schema
-    columns_sql = ",\n".join([f"[{field.name}] {spark_to_mssql_type(field.dataType)}" for field in schema.fields])
+    columns_sql = ",\n".join(
+        [f"[{field.name}] {spark_to_mssql_type(field.dataType)}" for field in schema.fields]
+    )
     create_table_sql = f"CREATE TABLE {table} (\n{columns_sql}\n);"
     return create_table_sql

@@ -1,71 +1,78 @@
 import pymssql
 from typing import Any, Union, List, Dict, Optional, Tuple
-from utils.logger import Logger
+from logger import Logger
 
 
 class MSSQLConnector:
-    def __init__(self, logger: Logger, server: str, database: str, username: str = None, password: str = None):
+    def __init__(self, logger: Logger, server: str, database: str,
+                 username: Optional[str] = None, password: Optional[str] = None):
+        """
+        Initializes MSSQLConnector and establishes a connection.
 
+        :param logger: Logger instance for logging.
+        :param server: SQL Server hostname or IP.
+        :param database: Name of the database to connect to.
+        :param username: Optional username for authentication.
+        :param password: Optional password for authentication.
+        """
         self.logger = logger
         self.server = server
         self.database = database
-
         self.username = username
         self.password = password
+        self.conn: Optional[pymssql.Connection] = self.connect()
 
-        self.conn: pymssql.Connection = self.connect()
+    def connect(self) -> Optional[pymssql.Connection]:
+        """
+        Establishes and returns a pymssql connection.
 
-    def connect(self):
+        :return: pymssql.Connection object or None if connection fails.
+        """
         try:
-            connection = pymssql.connect(server=self.server, user=self.username, password=self.password,
-                                         database=self.database)
-            if connection is None:
-                raise ValueError("Unsuccessful connect")
-            else:
-                return connection
+            connection = pymssql.connect(
+                server=self.server,
+                user=self.username,
+                password=self.password,
+                database=self.database
+            )
+            return connection
         except Exception as e:
-            self.logger.info(f"Failed to connect: {e}")
+            self.logger.error(f"Failed to connect to MSSQL: {e}")
+            return None
 
     def check_if_table_exists(self, table_name: str) -> bool:
         """
-        Returns True if table exists, False otherwise
+        Checks if a table exists in the database.
 
-        Arguments:
-            table_name: name of table
-
-        Returns:
-            True if table exists, False otherwise
+        :param table_name: Name of the table to check.
+        :return: True if the table exists, False otherwise.
         """
         cursor = self.conn.cursor()
-        query = f'''SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = '{table_name}';'''
-        cursor.execute(query)
-        table_exists = cursor.fetchone() is not None
+        query = f"SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = %s;"
+        cursor.execute(query, (table_name,))
+        exists = cursor.fetchone() is not None
         cursor.close()
-        return table_exists
+        return exists
 
-    def execute_query(self, query):
+    def execute_query(self, query: str) -> None:
         """
-        Executes query without returning result (mainly for DDL, DML operations).
+        Executes a SQL query without returning results (e.g., DDL/DML).
 
-        Arguments:
-            query: operation query
+        :param query: SQL query to execute.
         """
         cursor = self.conn.cursor()
         cursor.execute(query)
         self.conn.commit()
         cursor.close()
 
-    def select_query(self, query: str, params: Optional[Tuple] = None, one: bool = True):
+    def select_query(self, query: str, params: Optional[Tuple[Any, ...]] = None, one: bool = True) -> Union[Tuple, List[Tuple], None]:
         """
-        Selects records from database.
+        Executes a SELECT query and fetches results.
 
-        Arguments:
-            query: sql query
-            params: query params
-            one: if True than one record is returned, else many
-
-        Return:
-            list of table records or single record
+        :param query: SQL query string.
+        :param params: Optional parameters for the query.
+        :param one: If True, returns one record; otherwise, returns all.
+        :return: Fetched record(s) or None.
         """
         cursor = self.conn.cursor()
         if params:
@@ -73,50 +80,45 @@ class MSSQLConnector:
         else:
             cursor.execute(query)
 
-        if one:
-            result = cursor.fetchone()
-        else:
-            result = cursor.fetchall()
+        result = cursor.fetchone() if one else cursor.fetchall()
         cursor.close()
-
         return result
 
-    def create_table_if_not_exists(self, table: str, query: str):
+    def create_table_if_not_exists(self, table: str, query: str) -> None:
         """
-        Creates table if not exists
+        Creates a table if it does not already exist.
 
-        Arguments:
-            table: name of table
-            query: query creating table
+        :param table: Name of the table.
+        :param query: SQL query to create the table.
         """
         if not self.check_if_table_exists(table):
             self.logger.info(f"Creating table {table}...")
             self.execute_query(query)
 
-    def insert_into_table_from_dictionary(self, table_name: str, data: Union[List[Dict[str, Any]], Dict[str, Any]]):
+    def insert_into_table_from_dictionary(self, table_name: str, data: Union[List[Dict[str, Any]], Dict[str, Any]]) -> None:
         """
-        Inserts a record or list of records into a table
+        Inserts a record or list of records into a table.
 
-        Arguments:
-            table_name: name of table
-            data: list of records (dictionaries) or a single record to insert
+        :param table_name: Name of the table.
+        :param data: Single dictionary or list of dictionaries representing the data.
         """
-        if data:
-            if isinstance(data, list):
-                columns = '[' + '], ['.join(data[0].keys()) + ']'
-                placeholders = ', '.join(['%s'] * len(data[0]))
-                values = [tuple(None if v is None else v for v in d.values()) for d in data]
-            else:
-                columns = '[' + '], ['.join(data.keys()) + ']'
-                placeholders = ', '.join(['%s'] * len(data))
-                values = [tuple(None if v is None else v for v in data.values())]
+        if not data:
+            self.logger.warning(f"There is nothing to insert into table {table_name}")
+            return
 
-            cursor = self.conn.cursor()
-            query = f'''INSERT INTO {table_name} ({columns}) VALUES ({placeholders})'''
-            print(query)
-            cursor.executemany(query, values)
-            self.conn.commit()
-            cursor.close()
+        cursor = self.conn.cursor()
+
+        if isinstance(data, list):
+            columns = '[' + '], ['.join(data[0].keys()) + ']'
+            placeholders = ', '.join(['%s'] * len(data[0]))
+            values = [tuple(None if v is None else v for v in d.values()) for d in data]
         else:
-            self.logger.warning(f"There is nothing to insert to table {table_name}")
+            columns = '[' + '], ['.join(data.keys()) + ']'
+            placeholders = ', '.join(['%s'] * len(data))
+            values = [tuple(None if v is None else v for v in data.values())]
 
+        query = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
+        self.logger.info(f"Executing insert: {query}")
+        cursor.executemany(query, values)
+        self.conn.commit()
+        cursor.close()

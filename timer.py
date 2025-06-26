@@ -1,28 +1,35 @@
 import time
+from typing import Optional
 
 
 class Timer:
-
     def __init__(self):
+        """
+        Initializes the timer with the current time as both start and current checkpoints.
+        """
         self.start_time = time.time()
         self.current_time = time.time()
 
-    def time(self, start_time=None, time_from_start=False):
-        if start_time is not None:
-            current_time = time.time() - start_time
-        else:
-            if time_from_start:
-                current_time = time.time() - self.start_time
-            else:
-                current_time = time.time() - self.current_time
+    def time(self, start_time: Optional[float] = None, time_from_start: bool = False) -> str:
+        """
+        Returns a formatted string representing the elapsed time.
 
-        seconds, fractional_seconds = divmod(current_time, 1)
-        minutes, seconds = divmod(seconds, 60)
+        :param start_time: Optional custom start time (timestamp) to measure from.
+        :param time_from_start: If True, calculates time from initial start; otherwise from last call.
+        :return: Elapsed time as formatted string (e.g., "0h1m15s250000ms").
+        """
+        if start_time is not None:
+            elapsed = time.time() - start_time
+        elif time_from_start:
+            elapsed = time.time() - self.start_time
+        else:
+            elapsed = time.time() - self.current_time
+
+        seconds, fractional = divmod(elapsed, 1)
+        minutes, seconds = divmod(int(seconds), 60)
         hours, minutes = divmod(minutes, 60)
-        milliseconds = int(fractional_seconds * 1000000)
-        
-        time_string = f"{int(hours)}h{int(minutes)}m{int(seconds)}s{milliseconds}ms"
+        milliseconds = int(fractional * 1_000_000)
 
         self.current_time = time.time()
-        
-        return time_string
+
+        return f"{int(hours)}h{int(minutes)}m{int(seconds)}s{milliseconds}ms"
